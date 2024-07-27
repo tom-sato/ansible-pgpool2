@@ -21,6 +21,7 @@
     block: |
       listen_addresses = '*'
       port = {{ pgpool2_port }}
+      pcp_listen_addresses = '*'
       pcp_port = {{ pgpool2_pcp_port }}
       {% for host in groups.postgresql %}
       backend_hostname{{ loop.index0 }} = '{{ host }}'
@@ -159,7 +160,7 @@
 - name: Generating .pcppass File
   lineinfile:
     path: "{{ postgresql_home_directory }}/.pcppass"
-    line: localhost:{{ pgpool2_pcp_port }}:{{ pgpool2_pcp_user }}:{{ pgpool2_pcp_password }}
+    line: "*:{{ pgpool2_pcp_port }}:{{ pgpool2_pcp_user }}:{{ pgpool2_pcp_password }}"
     owner: "{{ postgresql_user }}"
     group: "{{ postgresql_group }}"
     mode: 0600
