@@ -3,5 +3,6 @@ pgpool2_version: 4.5
 pgpool2_port: 9999
 pgpool2_pcp_port: 9898
 pgpool2_ssh_key_filename: id_rsa
+pgpool2_encryption_key: pgpool
 pgpool2_pcp_user: postgres
 pgpool2_pcp_password: postgres

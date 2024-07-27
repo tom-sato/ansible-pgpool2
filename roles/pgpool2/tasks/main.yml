@@ -30,6 +30,9 @@
       backend_data_directory{{ loop.index0 }} = '{{ postgresql_data_directory }}'
       backend_application_name{{ loop.index0 }} = '{{ host }}'
       {% endfor %}
+      {% if postgresql_password != '' %}
+      enable_pool_hba = on
+      {% endif %}
       sr_check_user = '{{ postgresql_user }}'
       health_check_period = 5
       health_check_timeout = 30
@@ -85,6 +88,40 @@
         value: "{{ postgresql_user }}"
       - name: SSH_KEY_FILE
         value: "{{ pgpool2_ssh_key_filename }}"
+- block:
+    - name: Setting Authentication Method in pool_hba.conf
+      replace:
+        path: /etc/pgpool-II/pool_hba.conf
+        regexp: ^((local|host)\s+all\s+all\s+((127\.0\.0\.1/32|::1/128)\s+)?)trust
+        replace: "\\1{{ postgresql_auth_method}}"
+    - name: Generating .pgpoolkey File
+      lineinfile:
+        path: "{{ postgresql_home_directory }}/.pgpoolkey"
+        line: "{{ pgpool2_encryption_key }}"
+        owner: "{{ postgresql_user }}"
+        group: "{{ postgresql_group }}"
+        mode: 0600
+        create: true
+    - name: Encrypting Password
+      command:
+        cmd: pg_enc -k {{ postgresql_home_directory }}/.pgpoolkey {{ postgresql_password }}
+      register: _pg_enc
+      changed_when: false
+    - name: Adding Encrypted Password to pool_passwd File
+      lineinfile:
+        path: /etc/pgpool-II/pool_passwd
+        line: "{{ postgresql_user }}:{{ _pg_enc.stdout_lines[-1].split(' ')[-1] }}"
+    - name: Generating .pgpass File
+      blockinfile:
+        path: "{{ postgresql_home_directory }}/.pgpass"
+        block: |
+          *:{{ postgresql_port }}:*:{{ postgresql_user }}:{{ postgresql_password }}
+          *:{{ pgpool2_port }}:*:{{ postgresql_user }}:{{ postgresql_password }}
+        owner: "{{ postgresql_user }}"
+        group: "{{ postgresql_group }}"
+        mode: 0600
+        create: true
+  when: postgresql_password != ''
 - block:
     - name: Including Tasks for Installing Pgpool-II Repository
       include_tasks:

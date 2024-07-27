@@ -13,11 +13,40 @@
     group: "{{ postgresql_group }}"
     mode: 0700
 - block:
-    - name: Creating Database Cluster
-      command:
-        cmd: /usr/pgsql-{{ postgresql_version }}/bin/initdb {{ postgresql_initdb_options }} {{ postgresql_data_directory }}
-        creates: "{{ postgresql_data_directory }}/PG_VERSION"
-      become_user: "{{ postgresql_user }}"
+    - name: Checking if Database Cluster Exists
+      stat:
+        path: "{{ postgresql_data_directory }}/PG_VERSION"
+      register: _pg_version
+    - block:
+        - block:
+            - name: Generating Temporary File Name
+              tempfile:
+              register: _tempfile
+            - name: Setting Password in Temporary File
+              lineinfile:
+                path: "{{ _tempfile.path }}"
+                line: "{{ postgresql_password }}"
+                owner: "{{ postgresql_user }}"
+                group: "{{ postgresql_group }}"
+                mode: 0600
+                create: true
+          when: postgresql_password != ''
+        - name: Creating Database Cluster
+          command:
+            cmd: >
+              /usr/pgsql-{{ postgresql_version }}/bin/initdb -A {{ postgresql_auth_method }}
+              {% if _tempfile.path is defined %}
+              --pwfile={{ _tempfile.path }}
+              {% endif %}
+              {{ postgresql_initdb_options }} {{ postgresql_data_directory }}
+          become_user: "{{ postgresql_user }}"
+      when: not _pg_version.stat.exists
+      always:
+        - name: Removing Temporary File
+          file:
+            path: "{{ _tempfile.path }}"
+            state: absent
+          when: _tempfile.path is defined
     - name: Editing postgresql.conf File
       blockinfile:
         path: "{{ postgresql_data_directory }}/postgresql.conf"
@@ -28,14 +57,22 @@
       blockinfile:
         path: "{{ postgresql_data_directory }}/pg_hba.conf"
         block: |
-          host all all samenet trust
-          host replication all samenet trust
+          host all all samenet {{ postgresql_auth_method }}
+          host replication all samenet {{ postgresql_auth_method }}
     - name: Starting Primary Server
       command:
         cmd: /usr/pgsql-{{ postgresql_version }}/bin/pg_ctl start -D {{ postgresql_data_directory }}
         creates: "{{ postgresql_data_directory }}/postmaster.pid"
       become_user: "{{ postgresql_user }}"
   when: ansible_hostname == postgresql_primary_server
+- name: Generating .pgpass File
+  lineinfile:
+    path: "{{ postgresql_home_directory }}/.pgpass"
+    line: "*:{{ postgresql_port }}:*:{{ postgresql_user }}:{{ postgresql_password }}"
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: 0600
+    create: true
 - block:
     - name: Generating Replication Slot Name
       set_fact:
