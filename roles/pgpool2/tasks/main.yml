@@ -1,0 +1,170 @@
+---
+- name: Including PostgreSQL Variables
+  include_vars:
+    file: ../../postgresql/defaults/main.yml
+- name: Including Tasks for Installing PostgreSQL Repository
+  include_tasks:
+    file: ../../postgresql/tasks/repo.yml
+- name: Installing PostgreSQL Server
+  yum:
+    name: postgresql{{ postgresql_version }}-server
+- name: Including Tasks for Installing Pgpool-II Repository
+  include_tasks:
+    file: repo.yml
+- name: Installing Pgpool-II Server
+  yum:
+    name: pgpool-II-pg{{ postgresql_version }}
+    enablerepo: crb
+- name: Editing pgpool.conf File
+  blockinfile:
+    path: /etc/pgpool-II/pgpool.conf
+    block: |
+      listen_addresses = '*'
+      port = {{ pgpool2_port }}
+      pcp_port = {{ pgpool2_pcp_port }}
+      {% for host in groups.postgresql %}
+      backend_hostname{{ loop.index0 }} = '{{ host }}'
+      backend_port{{ loop.index0 }} = {{ postgresql_port }}
+      backend_weight{{ loop.index0 }} = 1
+      backend_data_directory{{ loop.index0 }} = '{{ postgresql_data_directory }}'
+      backend_application_name{{ loop.index0 }} = '{{ host }}'
+      {% endfor %}
+      sr_check_user = '{{ postgresql_user }}'
+      health_check_period = 5
+      health_check_timeout = 30
+      health_check_user = '{{ postgresql_user }}'
+      health_check_max_retries = 3
+      failover_command = '/etc/pgpool-II/failover.sh %d %h %p %D %m %H %M %P %r %R %N %S'
+      follow_primary_command = '/etc/pgpool-II/follow_primary.sh %d %h %p %D %m %H %M %P %r %R'
+      recovery_user = '{{ postgresql_user }}'
+      recovery_1st_stage_command = 'recovery_1st_stage'
+- name: Creating Unix Socket Directory
+  file:
+    path: /var/run/postgresql
+    state: directory
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: 0755
+- name: Including Tasks for Adding SSH Public Key
+  include_tasks:
+    file: authkey.yml
+  vars:
+    hosts: "{{ groups.postgresql }}"
+- name: Copying Failover Scripts
+  copy:
+    src: /etc/pgpool-II/sample_scripts/{{ item }}.sample
+    dest: /etc/pgpool-II/{{ item }}
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: 0700
+    remote_src: true
+    force: false
+  loop:
+    - failover.sh
+    - follow_primary.sh
+- name: Setting Variables in Failover Scripts
+  lineinfile:
+    path: /etc/pgpool-II/{{ item.0 }}
+    regexp: ^({{ item.1.name }}=).*
+    line: \g<1>{{ item.1.value }}
+    backrefs: true
+  loop: "{{ files | product(shvars) }}"
+  vars:
+    files:
+      - failover.sh
+      - follow_primary.sh
+    shvars:
+      - name: REPLUSER
+        value: "{{ postgresql_user }}"
+      - name: PCP_USER
+        value: "{{ pgpool2_pcp_user }}"
+      - name: PCP_PORT
+        value: "{{ pgpool2_pcp_port }}"
+      - name: POSTGRESQL_STARTUP_USER
+        value: "{{ postgresql_user }}"
+      - name: SSH_KEY_FILE
+        value: "{{ pgpool2_ssh_key_filename }}"
+- block:
+    - name: Including Tasks for Installing Pgpool-II Repository
+      include_tasks:
+        file: repo.yml
+        apply:
+          delegate_to: "{{ item }}"
+      loop: "{{ groups.postgresql }}"
+    - name: Installing Pgpool-II Extensions
+      yum:
+        name: pgpool-II-pg{{ postgresql_version }}-extensions
+        enablerepo: crb
+      delegate_to: "{{ item }}"
+      loop: "{{ groups.postgresql }}"
+    - name: Creating pgpool_recovery Extension
+      command:
+        cmd: /usr/pgsql-{{ postgresql_version }}/bin/psql -c "CREATE EXTENSION IF NOT EXISTS pgpool_recovery" -h {{ postgresql_primary_server }} -p {{ postgresql_port }} template1
+      become_user: "{{ postgresql_user }}"
+      register: _psql
+      changed_when: _psql.stderr is not search('already exists, skipping')
+    - name: Including Tasks for Adding SSH Public Key
+      include_tasks:
+        file: authkey.yml
+        apply:
+          delegate_to: "{{ item }}"
+      loop: "{{ groups.postgresql }}"
+      vars:
+        hosts: "{{ groups.postgresql }}"
+    - name: Checking if Recovery Scripts Exist
+      stat:
+        path: "{{ postgresql_data_directory }}/{{ item.0 }}"
+      delegate_to: "{{ item.1 }}"
+      register: _stat
+      loop: "{{ files | product(groups.postgresql) }}"
+      vars:
+        files:
+          - recovery_1st_stage
+          - pgpool_remote_start
+    - name: Copying Recovery Scripts
+      command:
+        cmd: scp -i {{ postgresql_home_directory}}/.ssh/{{ pgpool2_ssh_key_filename }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /etc/pgpool-II/sample_scripts/{{ item.item.0 }}.sample {{ item.item.1 }}:{{ postgresql_data_directory }}/{{ item.item.0 }}
+      become_user: "{{ postgresql_user }}"
+      when: not item.stat.exists
+      loop: "{{ _stat.results }}"
+    - name: Setting Variables in Recovery Scripts
+      lineinfile:
+        path: "{{ postgresql_data_directory }}/{{ item.0 }}"
+        regexp: ^({{ item.1.name }}=).*
+        line: \g<1>{{ item.1.value }}
+        backrefs: true
+      delegate_to: "{{ item.2 }}"
+      loop: "{{ files | product(shvars) | product(groups.postgresql) | map('flatten', levels=1) }}"
+      vars:
+        files:
+          - recovery_1st_stage
+          - pgpool_remote_start
+        shvars:
+          - name: REPLUSER
+            value: "{{ postgresql_user }}"
+          - name: POSTGRESQL_STARTUP_USER
+            value: "{{ postgresql_user }}"
+          - name: SSH_KEY_FILE
+            value: "{{ pgpool2_ssh_key_filename }}"
+  run_once: true
+- name: Generating PCP Password
+  command:
+    cmd: pg_md5 {{ pgpool2_pcp_password }}
+  register: _pg_md5
+  changed_when: false
+- name: Adding PCP User to pcp.conf File
+  lineinfile:
+    path: /etc/pgpool-II/pcp.conf
+    line: "{{ pgpool2_pcp_user }}:{{ _pg_md5.stdout }}"
+- name: Generating .pcppass File
+  lineinfile:
+    path: "{{ postgresql_home_directory }}/.pcppass"
+    line: localhost:{{ pgpool2_pcp_port }}:{{ pgpool2_pcp_user }}:{{ pgpool2_pcp_password }}
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: 0600
+    create: true
+- name: Starting Pgpool-II Server
+  service:
+    name: pgpool
+    state: started

@@ -1,0 +1,23 @@
+---
+- name: Creating SSH Directory
+  file:
+    path: "{{ postgresql_home_directory }}/.ssh"
+    state: directory
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: 0700
+- name: Generating SSH Private and Public Keys
+  openssh_keypair:
+    path: "{{ postgresql_home_directory }}/.ssh/{{ pgpool2_ssh_key_filename }}"
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: 0600
+  register: _openssh_keypair
+- name: Adding SSH Public Key
+  authorized_key:
+    user: "{{ postgresql_user }}"
+    key: "{{ _openssh_keypair.public_key }}"
+  delegate_to: "{{ _item }}"
+  loop: "{{ hosts }}"
+  loop_control:
+    loop_var: _item

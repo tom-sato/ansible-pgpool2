@@ -1,0 +1,46 @@
+---
+- name: Checking if Locale Data is Installed
+  command:
+    cmd: localectl list-locales
+  register: _localectl
+  changed_when: false
+- name: Installing Locale Data
+  yum:
+    name: glibc-langpack-{{ system_locale.split('_')[0] }}
+  when: system_locale not in _localectl.stdout_lines
+- name: Checking if System Locale is Set
+  command:
+    cmd: localectl status
+  register: _localectl
+  changed_when: false
+- name: Setting System Locale
+  command:
+    cmd: localectl set-locale LANG={{ system_locale }}
+  when: "_localectl.stdout is not search('System Locale: LANG=' + system_locale)"
+- name: Checking if System Time Zone is Set
+  command:
+    cmd: timedatectl status
+  register: _timedatectl
+  changed_when: false
+- name: Setting System Time Zone
+  command:
+    cmd: timedatectl set-timezone {{ system_timezone }}
+  when: "_timedatectl.stdout is not search('Time zone: ' + system_timezone)"
+- name: Commenting Out 127.0.1.1 from /etc/hosts File
+  lineinfile:
+    path: /etc/hosts
+    regexp: ^(127\.0\.1\.1\s+.+)
+    line: '#\1'
+    backrefs: true
+- name: Gathering Facts from All Hosts
+  setup:
+  delegate_to: "{{ item }}"
+  delegate_facts: true
+  loop: "{{ groups.all }}"
+- name: Adding All Host Names to /etc/hosts File
+  blockinfile:
+    path: /etc/hosts
+    block: |
+      {% for host in groups.all %}
+      {{ hostvars[host]['ansible_' + public_interface].ipv4.address }} {{ hostvars[host].ansible_fqdn }} {{ host }}
+      {% endfor %}

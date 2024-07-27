@@ -1,0 +1,80 @@
+---
+- name: Including Tasks for Installing PostgreSQL Repository
+  include_tasks:
+    file: repo.yml
+- name: Installing PostgreSQL Server
+  yum:
+    name: postgresql{{ postgresql_version }}-server
+- name: Creating Data Directory
+  file:
+    path: "{{ postgresql_data_directory }}"
+    state: directory
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: 0700
+- block:
+    - name: Creating Database Cluster
+      command:
+        cmd: /usr/pgsql-{{ postgresql_version }}/bin/initdb {{ postgresql_initdb_options }} {{ postgresql_data_directory }}
+        creates: "{{ postgresql_data_directory }}/PG_VERSION"
+      become_user: "{{ postgresql_user }}"
+    - name: Editing postgresql.conf File
+      blockinfile:
+        path: "{{ postgresql_data_directory }}/postgresql.conf"
+        block: |
+          listen_addresses = '*'
+          port = {{ postgresql_port }}
+    - name: Editing pg_hba.conf File
+      blockinfile:
+        path: "{{ postgresql_data_directory }}/pg_hba.conf"
+        block: |
+          host all all samenet trust
+          host replication all samenet trust
+    - name: Starting Primary Server
+      command:
+        cmd: /usr/pgsql-{{ postgresql_version }}/bin/pg_ctl start -D {{ postgresql_data_directory }}
+        creates: "{{ postgresql_data_directory }}/postmaster.pid"
+      become_user: "{{ postgresql_user }}"
+  when: ansible_hostname == postgresql_primary_server
+- block:
+    - name: Generating Replication Slot Name
+      set_fact:
+        _slotname: "{{ ansible_hostname | lower | regex_replace('[-.]', '_') }}"
+    - name: Checking if Replication Slot Exists
+      stat:
+        path: "{{ postgresql_data_directory }}/pg_replslot/{{ _slotname }}"
+      delegate_to: "{{ postgresql_primary_server }}"
+      register: _pg_replslot
+    - name: Creating Replication Slot
+      command:
+        cmd: /usr/pgsql-{{ postgresql_version }}/bin/psql -c "SELECT pg_create_physical_replication_slot('{{ _slotname }}')" -h {{ postgresql_primary_server }} -p {{ postgresql_port }}
+      become_user: "{{ postgresql_user }}"
+      when: not _pg_replslot.stat.exists
+    - name: Taking Base Backup
+      command:
+        cmd: /usr/pgsql-{{ postgresql_version }}/bin/pg_basebackup -D {{ postgresql_data_directory }} -S {{ _slotname }} -h {{ postgresql_primary_server }} -p {{ postgresql_port }}
+        creates: "{{ postgresql_data_directory }}/PG_VERSION"
+      become_user: "{{ postgresql_user }}"
+    - name: Generating Standby Config File
+      blockinfile:
+        path: "{{ postgresql_data_directory }}/myrecovery.conf"
+        block: |
+          primary_conninfo = 'host={{ postgresql_primary_server }} port={{ postgresql_port }} application_name={{ ansible_hostname }}'
+          primary_slot_name = '{{ _slotname }}'
+        create: true
+    - name: Editing postgresql.conf File to Include Standby Config
+      lineinfile:
+        path: "{{ postgresql_data_directory }}/postgresql.conf"
+        line: include_if_exists 'myrecovery.conf'
+    - name: Generating standby.signal File
+      file:
+        path: "{{ postgresql_data_directory }}/standby.signal"
+        state: touch
+        modification_time: preserve
+        access_time: preserve
+    - name: Starting Standby Server
+      command:
+        cmd: /usr/pgsql-{{ postgresql_version }}/bin/pg_ctl start -D {{ postgresql_data_directory }}
+        creates: "{{ postgresql_data_directory }}/postmaster.pid"
+      become_user: "{{ postgresql_user }}"
+  when: ansible_hostname != postgresql_primary_server

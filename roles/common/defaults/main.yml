@@ -1,0 +1,4 @@
+---
+system_locale: ja_JP.UTF-8
+system_timezone: Asia/Tokyo
+public_interface: eth1

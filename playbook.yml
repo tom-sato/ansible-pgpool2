@@ -1,0 +1,11 @@
+---
+- hosts: postgresql
+  become: true
+  roles:
+    - common
+    - postgresql
+- hosts: pgpool2
+  become: true
+  roles:
+    - common
+    - pgpool2

@@ -1,0 +1,12 @@
+---
+- name: Importing Pgpool-II RPM Key
+  rpm_key:
+    key: https://www.pgpool.net/yum/RPM-GPG-KEY-PGPOOL2
+- name: Checking if Pgpool-II Repository is Latest
+  uri:
+    url: https://www.pgpool.net/yum/rpms/{{ pgpool2_version }}/redhat/rhel-{{ ansible_distribution_major_version }}-{{ ansible_architecture }}/
+    return_content: true
+  register: _uri
+- name: Installing Pgpool-II Repository
+  yum:
+    name: "{{ _uri.url }}/{{ _uri.content | regex_findall('pgpool-II-release-.*?\\.rpm', multiline=true) | sort | last }}"

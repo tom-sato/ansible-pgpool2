@@ -1,0 +1,9 @@
+---
+postgresql_version: 16
+postgresql_data_directory: /var/lib/pgsql/{{ postgresql_version }}/data
+postgresql_user: postgres
+postgresql_group: postgres
+postgresql_initdb_options: -E UTF8 -k --locale=C
+postgresql_port: 5432
+postgresql_primary_server: "{{ groups.postgresql.0 }}"
+postgresql_home_directory: /var/lib/pgsql
