@@ -1,0 +1,18 @@
+---
+- name: Installing Python Cryptography Library
+  yum:
+    name: python3-cryptography
+- name: Generating SSL Private and Public Keys
+  openssl_privatekey:
+    path: "{{ directory }}/server.key"
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: 0600
+- name: Generating SSL Certificate
+  openssl_certificate:
+    path: "{{ directory }}/server.crt"
+    privatekey_path: "{{ directory }}/server.key"
+    provider: selfsigned
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: 0600

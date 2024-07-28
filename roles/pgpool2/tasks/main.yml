@@ -30,8 +30,11 @@
       backend_data_directory{{ loop.index0 }} = '{{ postgresql_data_directory }}'
       backend_application_name{{ loop.index0 }} = '{{ host }}'
       {% endfor %}
-      {% if postgresql_password != '' %}
       enable_pool_hba = on
+      {% if postgresql_ssl_enabled %}
+      ssl = on
+      ssl_key = 'server.key'
+      ssl_cert = 'server.crt'
       {% endif %}
       sr_check_user = '{{ postgresql_user }}'
       health_check_period = 5
@@ -88,12 +91,23 @@
         value: "{{ postgresql_user }}"
       - name: SSH_KEY_FILE
         value: "{{ pgpool2_ssh_key_filename }}"
+- name: Setting Authentication Method in pool_hba.conf File
+  replace:
+    path: /etc/pgpool-II/pool_hba.conf
+    regexp: ^((local|host)\s+all\s+all\s+((127\.0\.0\.1/32|::1/128)\s+)?)trust
+    replace: "\\1{{ postgresql_auth_method}}"
+- name: Editing pool_hba.conf File
+  blockinfile:
+    path: /etc/pgpool-II/pool_hba.conf
+    block: |
+      {{ postgresql_ssl_enabled | ternary('hostssl', 'host') }} all all samenet {{ postgresql_auth_method }}
 - block:
-    - name: Setting Authentication Method in pool_hba.conf
-      replace:
-        path: /etc/pgpool-II/pool_hba.conf
-        regexp: ^((local|host)\s+all\s+all\s+((127\.0\.0\.1/32|::1/128)\s+)?)trust
-        replace: "\\1{{ postgresql_auth_method}}"
+    - name: Including Tasks for Generating SSL Certificate
+      include_tasks:
+        file: ../../postgresql/tasks/sslcert.yml
+      vars:
+        directory: /etc/pgpool-II
+      when: postgresql_ssl_enabled
     - name: Generating .pgpoolkey File
       lineinfile:
         path: "{{ postgresql_home_directory }}/.pgpoolkey"

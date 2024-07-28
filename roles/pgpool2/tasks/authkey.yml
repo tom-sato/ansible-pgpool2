@@ -17,7 +17,7 @@
   authorized_key:
     user: "{{ postgresql_user }}"
     key: "{{ _openssh_keypair.public_key }}"
-  delegate_to: "{{ _item }}"
+  delegate_to: "{{ inner_item }}"
   loop: "{{ hosts }}"
   loop_control:
-    loop_var: _item
+    loop_var: inner_item

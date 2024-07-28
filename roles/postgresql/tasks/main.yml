@@ -53,12 +53,21 @@
         block: |
           listen_addresses = '*'
           port = {{ postgresql_port }}
+          {% if postgresql_ssl_enabled %}
+          ssl = on
+          {% endif %}
     - name: Editing pg_hba.conf File
       blockinfile:
         path: "{{ postgresql_data_directory }}/pg_hba.conf"
         block: |
-          host all all samenet {{ postgresql_auth_method }}
-          host replication all samenet {{ postgresql_auth_method }}
+          {{ postgresql_ssl_enabled | ternary('hostssl', 'host') }} all all samenet {{ postgresql_auth_method }}
+          {{ postgresql_ssl_enabled | ternary('hostssl', 'host') }} replication all samenet {{ postgresql_auth_method }}
+    - name: Including Tasks for Generating SSL Certificate
+      include_tasks:
+        file: sslcert.yml
+      vars:
+        directory: "{{ postgresql_data_directory}}"
+      when: postgresql_ssl_enabled
     - name: Starting Primary Server
       command:
         cmd: /usr/pgsql-{{ postgresql_version }}/bin/pg_ctl start -D {{ postgresql_data_directory }}
