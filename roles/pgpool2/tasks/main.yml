@@ -91,6 +91,8 @@
       - failover.sh
       - follow_primary.sh
     shvars:
+      - name: PGHOME
+        value: "/usr/pgsql-{{ postgresql_version }}"
       - name: REPLUSER
         value: "{{ postgresql_replication_role }}"
       - name: PCP_USER
@@ -219,6 +221,8 @@
           - recovery_1st_stage
           - pgpool_remote_start
         shvars:
+          - name: PGHOME
+            value: "/usr/pgsql-{{ postgresql_version }}"
           - name: REPLUSER
             value: "{{ postgresql_replication_role }}"
           - name: POSTGRESQL_STARTUP_USER
