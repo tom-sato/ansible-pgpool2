@@ -9,6 +9,7 @@
 - name: Generating SSH Private and Public Keys
   openssh_keypair:
     path: "{{ postgresql_home_directory }}/.ssh/{{ pgpool2_ssh_key_filename }}"
+    type: "{{ pgpool2_ssh_key_type }}"
     owner: "{{ postgresql_user }}"
     group: "{{ postgresql_group }}"
     mode: 0600
