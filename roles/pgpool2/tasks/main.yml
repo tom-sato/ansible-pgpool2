@@ -92,7 +92,7 @@
       - follow_primary.sh
     shvars:
       - name: REPLUSER
-        value: "{{ postgresql_user }}"
+        value: "{{ postgresql_replication_role }}"
       - name: PCP_USER
         value: "{{ pgpool2_pcp_user }}"
       - name: PCP_PORT
@@ -140,6 +140,7 @@
         path: "{{ postgresql_home_directory }}/.pgpass"
         block: |
           *:{{ postgresql_port }}:*:{{ postgresql_user }}:{{ postgresql_password }}
+          *:{{ postgresql_port }}:*:{{ postgresql_replication_role }}:{{ postgresql_replication_password }}
           *:{{ pgpool2_port }}:*:{{ postgresql_user }}:{{ postgresql_password }}
         owner: "{{ postgresql_user }}"
         group: "{{ postgresql_group }}"
@@ -203,7 +204,7 @@
           - pgpool_remote_start
         shvars:
           - name: REPLUSER
-            value: "{{ postgresql_user }}"
+            value: "{{ postgresql_replication_role }}"
           - name: POSTGRESQL_STARTUP_USER
             value: "{{ postgresql_user }}"
           - name: SSH_KEY_FILE

@@ -75,13 +75,16 @@
       become_user: "{{ postgresql_user }}"
   when: ansible_hostname == postgresql_primary_server
 - name: Generating .pgpass File
-  lineinfile:
+  blockinfile:
     path: "{{ postgresql_home_directory }}/.pgpass"
-    line: "*:{{ postgresql_port }}:*:{{ postgresql_user }}:{{ postgresql_password }}"
+    block: |
+      *:{{ postgresql_port }}:*:{{ postgresql_user }}:{{ postgresql_password }}
+      *:{{ postgresql_port }}:*:{{ postgresql_replication_role }}:{{ postgresql_replication_password }}
     owner: "{{ postgresql_user }}"
     group: "{{ postgresql_group }}"
     mode: 0600
     create: true
+  when: postgresql_password != ''
 - block:
     - name: Generating Replication Slot Name
       set_fact:
@@ -96,16 +99,23 @@
         cmd: /usr/pgsql-{{ postgresql_version }}/bin/psql -c "SELECT pg_create_physical_replication_slot('{{ _slotname }}')" -h {{ postgresql_primary_server }} -p {{ postgresql_port }}
       become_user: "{{ postgresql_user }}"
       when: not _pg_replslot.stat.exists
+    - name: Creating Replication Role
+      command:
+        cmd: /usr/pgsql-{{ postgresql_version }}/bin/psql -c "CREATE ROLE {{ postgresql_replication_role }} LOGIN REPLICATION PASSWORD '{{ postgresql_replication_password }}'" -h {{ postgresql_primary_server }} -p {{ postgresql_port }}
+      become_user: "{{ postgresql_user }}"
+      register: _psql
+      changed_when: _psql.rc == 0
+      failed_when: _psql.rc != 0 and _psql.stderr is not search('already exists')
     - name: Taking Base Backup
       command:
-        cmd: /usr/pgsql-{{ postgresql_version }}/bin/pg_basebackup -D {{ postgresql_data_directory }} -S {{ _slotname }} -h {{ postgresql_primary_server }} -p {{ postgresql_port }}
+        cmd: /usr/pgsql-{{ postgresql_version }}/bin/pg_basebackup -D {{ postgresql_data_directory }} -S {{ _slotname }} -h {{ postgresql_primary_server }} -p {{ postgresql_port }} -U {{ postgresql_replication_role }}
         creates: "{{ postgresql_data_directory }}/PG_VERSION"
       become_user: "{{ postgresql_user }}"
     - name: Generating Standby Config File
       blockinfile:
         path: "{{ postgresql_data_directory }}/myrecovery.conf"
         block: |
-          primary_conninfo = 'host={{ postgresql_primary_server }} port={{ postgresql_port }} application_name={{ ansible_hostname }}'
+          primary_conninfo = 'host={{ postgresql_primary_server }} port={{ postgresql_port }} user={{ postgresql_replication_role }} application_name={{ ansible_hostname }}'
           primary_slot_name = '{{ _slotname }}'
         create: true
     - name: Editing postgresql.conf File to Include Standby Config

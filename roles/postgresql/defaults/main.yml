@@ -10,3 +10,5 @@ postgresql_port: 5432
 postgresql_ssl_enabled: true
 postgresql_primary_server: "{{ groups.postgresql.0 }}"
 postgresql_home_directory: /var/lib/pgsql
+postgresql_replication_role: replication
+postgresql_replication_password: replication
