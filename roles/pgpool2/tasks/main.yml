@@ -2,6 +2,16 @@
 - name: Including PostgreSQL Variables
   include_vars:
     file: ../../postgresql/defaults/main.yml
+- name: Checking if Database Cluster Exists
+  stat:
+    path: "{{ postgresql_data_directory }}/PG_VERSION"
+  delegate_to: "{{ item }}"
+  register: _pg_version
+  loop: "{{ groups.postgresql }}"
+- name: Aborting if Database Cluster Does Not Exist
+  fail:
+    msg: Database Cluster Does Not Exist
+  when: "{{ false in (_pg_version.results | map(attribute='stat.exists')) }}"
 - name: Including Tasks for Installing PostgreSQL Repository
   include_tasks:
     file: ../../postgresql/tasks/repo.yml
