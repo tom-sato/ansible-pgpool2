@@ -111,13 +111,13 @@
     path: /etc/pgpool-II/pool_hba.conf
     block: |
       {{ postgresql_ssl_enabled | ternary('hostssl', 'host') }} all all samenet {{ postgresql_auth_method }}
+- name: Including Tasks for Generating SSL Certificate
+  include_tasks:
+    file: ../../postgresql/tasks/sslcert.yml
+  vars:
+    directory: /etc/pgpool-II
+  when: postgresql_ssl_enabled
 - block:
-    - name: Including Tasks for Generating SSL Certificate
-      include_tasks:
-        file: ../../postgresql/tasks/sslcert.yml
-      vars:
-        directory: /etc/pgpool-II
-      when: postgresql_ssl_enabled
     - name: Generating .pgpoolkey File
       lineinfile:
         path: "{{ postgresql_home_directory }}/.pgpoolkey"
