@@ -11,7 +11,7 @@
 - name: Aborting if Database Cluster Does Not Exist
   fail:
     msg: Database Cluster Does Not Exist
-  when: "{{ false in (_pg_version.results | map(attribute='stat.exists')) }}"
+  when: false in (_pg_version.results | map(attribute='stat.exists'))
 - name: Including Tasks for Installing PostgreSQL Repository
   include_tasks:
     file: ../../postgresql/tasks/repo.yml
@@ -46,10 +46,10 @@
       ssl_key = 'server.key'
       ssl_cert = 'server.crt'
       {% endif %}
-      sr_check_user = '{{ postgresql_user }}'
+      sr_check_user = '{{ pgpool2_monitor_role }}'
       health_check_period = 5
       health_check_timeout = 30
-      health_check_user = '{{ postgresql_user }}'
+      health_check_user = '{{ pgpool2_monitor_role }}'
       health_check_max_retries = 3
       failover_command = '/etc/pgpool-II/failover.sh %d %h %p %D %m %H %M %P %r %R %N %S'
       follow_primary_command = '/etc/pgpool-II/follow_primary.sh %d %h %p %D %m %H %M %P %r %R'
@@ -128,19 +128,28 @@
         create: true
     - name: Encrypting Password
       command:
-        cmd: pg_enc -k {{ postgresql_home_directory }}/.pgpoolkey {{ postgresql_password }}
+        cmd: pg_enc -k {{ postgresql_home_directory }}/.pgpoolkey {{ item }}
       register: _pg_enc
+      loop:
+        - "{{ postgresql_password }}"
+        - "{{ pgpool2_monitor_password }}"
       changed_when: false
     - name: Adding Encrypted Password to pool_passwd File
-      lineinfile:
+      blockinfile:
         path: /etc/pgpool-II/pool_passwd
-        line: "{{ postgresql_user }}:{{ _pg_enc.stdout_lines[-1].split(' ')[-1] }}"
+        block: |
+          {{ postgresql_user }}:{{ _pg_enc.results.0.stdout_lines[-1].split(' ')[-1] }}
+          {% if pgpool2_monitor_role != postgresql_user %}
+          {{ pgpool2_monitor_role }}:{{ _pg_enc.results.1.stdout_lines[-1].split(' ')[-1] }}
+          {% endif %}
     - name: Generating .pgpass File
       blockinfile:
         path: "{{ postgresql_home_directory }}/.pgpass"
         block: |
           *:{{ postgresql_port }}:*:{{ postgresql_user }}:{{ postgresql_password }}
+          {% if postgresql_replication_role != postgresql_user %}
           *:{{ postgresql_port }}:*:{{ postgresql_replication_role }}:{{ postgresql_replication_password }}
+          {% endif %}
           *:{{ pgpool2_port }}:*:{{ postgresql_user }}:{{ postgresql_password }}
         owner: "{{ postgresql_user }}"
         group: "{{ postgresql_group }}"
@@ -148,6 +157,13 @@
         create: true
   when: postgresql_password != ''
 - block:
+    - name: Creating Monitor Role
+      command:
+        cmd: /usr/pgsql-{{ postgresql_version }}/bin/psql -c "CREATE ROLE {{ pgpool2_monitor_role }} LOGIN PASSWORD '{{ pgpool2_monitor_password }}' IN ROLE pg_monitor" -h {{ postgresql_primary_server }} -p {{ postgresql_port }}
+      become_user: "{{ postgresql_user }}"
+      register: _psql
+      changed_when: _psql.rc == 0
+      failed_when: _psql.rc != 0 and _psql.stderr is not search('already exists')
     - name: Including Tasks for Installing Pgpool-II Repository
       include_tasks:
         file: repo.yml

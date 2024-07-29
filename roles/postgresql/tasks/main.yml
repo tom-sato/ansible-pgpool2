@@ -79,7 +79,9 @@
     path: "{{ postgresql_home_directory }}/.pgpass"
     block: |
       *:{{ postgresql_port }}:*:{{ postgresql_user }}:{{ postgresql_password }}
+      {% if postgresql_replication_role != postgresql_user %}
       *:{{ postgresql_port }}:*:{{ postgresql_replication_role }}:{{ postgresql_replication_password }}
+      {% endif %}
     owner: "{{ postgresql_user }}"
     group: "{{ postgresql_group }}"
     mode: 0600

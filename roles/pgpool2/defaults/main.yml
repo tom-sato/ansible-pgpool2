@@ -6,3 +6,5 @@ pgpool2_ssh_key_filename: id_rsa
 pgpool2_encryption_key: pgpool
 pgpool2_pcp_user: postgres
 pgpool2_pcp_password: postgres
+pgpool2_monitor_role: monitor
+pgpool2_monitor_password: monitor
