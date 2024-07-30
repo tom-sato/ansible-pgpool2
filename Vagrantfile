@@ -5,12 +5,12 @@ Vagrant.configure("2") do |config|
     "pgpool2" => ["node-4"]
   }
   nodes = groups.values.flatten.uniq
-  nodes.each do |hostname|
+  nodes.each_with_index do |hostname, index|
     config.vm.define hostname do |node|
       node.vm.box = "rockylinux/9"
       node.vm.synced_folder ".", "/vagrant", disabled: true
       node.vm.hostname = hostname + ".example.com"
-      node.vm.network "private_network", type: "dhcp"
+      node.vm.network "private_network", ip: "192.168.56.#{101 + index}"
       if hostname.equal?(nodes.last)
         node.vm.provision "ansible" do |ansible|
           ansible.limit = "all"
