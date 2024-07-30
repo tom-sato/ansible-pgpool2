@@ -26,7 +26,7 @@
   command:
     cmd: timedatectl set-timezone {{ system_timezone }}
   when: "_timedatectl.stdout is not search('Time zone: ' + system_timezone)"
-- name: Commenting Out 127.0.1.1 from /etc/hosts File
+- name: Commenting Out 127.0.1.1 Entry from /etc/hosts File
   lineinfile:
     path: /etc/hosts
     regexp: ^(127\.0\.1\.1\s+.+)
@@ -37,7 +37,7 @@
   delegate_to: "{{ item }}"
   delegate_facts: true
   loop: "{{ groups.all }}"
-- name: Adding All Host Names to /etc/hosts File
+- name: Adding All Host Entries to /etc/hosts File
   blockinfile:
     path: /etc/hosts
     block: |

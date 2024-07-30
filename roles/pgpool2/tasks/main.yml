@@ -235,7 +235,7 @@
     cmd: pg_md5 {{ pgpool2_pcp_password }}
   register: _pg_md5
   changed_when: false
-- name: Adding PCP User to pcp.conf File
+- name: Adding PCP User Entry to pcp.conf File
   lineinfile:
     path: /etc/pgpool-II/pcp.conf
     line: "{{ pgpool2_pcp_user }}:{{ _pg_md5.stdout }}"
