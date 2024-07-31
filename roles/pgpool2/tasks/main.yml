@@ -170,11 +170,17 @@
           {% if postgresql_replication_role != postgresql_user %}
           *:{{ postgresql_port }}:*:{{ postgresql_replication_role }}:{{ postgresql_replication_password }}
           {% endif %}
-          *:{{ pgpool2_port }}:*:{{ postgresql_user }}:{{ postgresql_password }}
         owner: "{{ postgresql_user }}"
         group: "{{ postgresql_group }}"
         mode: 0600
         create: true
+    - name: Adding Pgpool-II Connection Entry to .pgpass File
+      lineinfile:
+        path: "{{ postgresql_home_directory }}/.pgpass"
+        line: "*:{{ pgpool2_port }}:*:{{ postgresql_user }}:{{ postgresql_password }}"
+      delegate_to: "{{ item }}"
+      loop: "{{ groups.all }}"
+      run_once: true
   when: postgresql_password != ''
 - block:
     - name: Creating Monitor Role
@@ -254,6 +260,9 @@
       lineinfile:
         path: /etc/hosts
         line: "{{ pgpool2_virtual_ip }} {{ pgpool2_virtual_hostname }} {{ pgpool2_virtual_hostname }}.{{ ansible_fqdn.split('.')[1:] | join('.') }}"
+      delegate_to: "{{ item }}"
+      loop: "{{ groups.all }}"
+      run_once: true
     - name: Setting Node ID in pgpool_node_id File
       lineinfile:
         path: /etc/pgpool-II/pgpool_node_id
@@ -302,6 +311,9 @@
     group: "{{ postgresql_group }}"
     mode: 0600
     create: true
+  delegate_to: "{{ item }}"
+  loop: "{{ groups.all }}"
+  run_once: true
 - name: Starting Pgpool-II Server
   service:
     name: pgpool
