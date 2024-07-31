@@ -2,7 +2,7 @@
 Vagrant.configure("2") do |config|
   groups = {
     "postgresql" => ["node-1", "node-2", "node-3"],
-    "pgpool2" => ["node-4"]
+    "pgpool2" => ["node-4", "node-5", "node-6"]
   }
   nodes = groups.values.flatten.uniq
   nodes.each_with_index do |hostname, index|

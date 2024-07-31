@@ -55,6 +55,24 @@
       follow_primary_command = '/etc/pgpool-II/follow_primary.sh %d %h %p %D %m %H %M %P %r %R'
       recovery_user = '{{ postgresql_user }}'
       recovery_1st_stage_command = 'recovery_1st_stage'
+      {% if pgpool2_watchdog_enabled %}
+      use_watchdog = on
+      {% for host in groups.pgpool2 %}
+      hostname{{ loop.index0 }} = '{{ host }}'
+      wd_port{{ loop.index0 }} = {{ pgpool2_watchdog_port }}
+      pgpool_port{{ loop.index0 }} = {{ pgpool2_port }}
+      {% endfor %}
+      delegate_ip = '{{ pgpool2_virtual_ip }}'
+      if_up_cmd = '/usr/bin/sudo /sbin/ip addr add $_IP_$/24 dev {{ public_interface }} label {{ public_interface }}:0'
+      if_down_cmd = '/usr/bin/sudo /sbin/ip addr del $_IP_$/24 dev {{ public_interface }}'
+      arping_cmd = '/usr/bin/sudo /usr/sbin/arping -U $_IP_$ -w 1 -I {{ public_interface }}'
+      wd_escalation_command = '/etc/pgpool-II/escalation.sh'
+      enable_consensus_with_half_votes = {{ ((groups.pgpool2 | length) % 2 == 0) | ternary('on', 'off') }}
+      {% for host in groups.pgpool2 %}
+      heartbeat_hostname{{ loop.index0 }} = '{{ host }}'
+      heartbeat_port{{ loop.index0 }} = {{ pgpool2_heartbeat_port }}
+      {% endfor %}
+      {% endif %}
 - name: Creating Unix Socket Directory
   file:
     path: /var/run/postgresql
@@ -176,6 +194,7 @@
       yum:
         name: pgpool-II-pg{{ postgresql_version }}-extensions
         enablerepo: crb
+        disablerepo: pgdg*
       delegate_to: "{{ item }}"
       loop: "{{ groups.postgresql }}"
     - name: Creating pgpool_recovery Extension
@@ -230,6 +249,42 @@
           - name: SSH_KEY_FILE
             value: "{{ pgpool2_ssh_key_filename }}"
   run_once: true
+- block:
+    - name: Adding Virtual IP Entry to /etc/hosts File
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ pgpool2_virtual_ip }} {{ pgpool2_virtual_hostname }} {{ pgpool2_virtual_hostname }}.{{ ansible_fqdn.split('.')[1:] | join('.') }}"
+    - name: Setting Node ID in pgpool_node_id File
+      lineinfile:
+        path: /etc/pgpool-II/pgpool_node_id
+        line: "{{ groups.pgpool2.index(ansible_hostname) }}"
+    - name: Copying Wtachdog Scripts
+      copy:
+        src: /etc/pgpool-II/sample_scripts/escalation.sh.sample
+        dest: /etc/pgpool-II/escalation.sh
+        owner: "{{ postgresql_user }}"
+        group: "{{ postgresql_group }}"
+        mode: 0700
+        remote_src: true
+        force: false
+    - name: Setting Variables in Watchdog Scripts
+      lineinfile:
+        path: /etc/pgpool-II/escalation.sh
+        regexp: ^({{ item.name }}=).*
+        line: \g<1>{{ item.value }}
+        backrefs: true
+      loop:
+        - name: POSTGRESQL_STARTUP_USER
+          value: "{{ postgresql_user }}"
+        - name: SSH_KEY_FILE
+          value: "{{ pgpool2_ssh_key_filename }}"
+        - name: PGPOOLS
+          value: "({{ groups.pgpool2 | join(' ') }})"
+        - name: VIP
+          value: "{{ pgpool2_virtual_ip }}"
+        - name: DEVICE
+          value: "{{ public_interface }}"
+  when: pgpool2_watchdog_enabled
 - name: Generating PCP Password
   command:
     cmd: pg_md5 {{ pgpool2_pcp_password }}
