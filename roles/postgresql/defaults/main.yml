@@ -1,11 +1,12 @@
 ---
 postgresql_version: 16
 postgresql_data_directory: /var/lib/pgsql/{{ postgresql_version }}/data
+postgresql_log_directory: /var/log/pgsql
 postgresql_user: postgres
 postgresql_group: postgres
 postgresql_password: postgres
-postgresql_auth_method: scram-sha-256
-postgresql_initdb_options: -E UTF8 -k --locale=C
+postgresql_auth_method: "{{ (postgresql_version is version('10', '>=')) | ternary('scram-sha-256', 'md5') }}"
+postgresql_initdb_options: -E UTF8 {% if postgresql_version is version('9.3', '>=') %}-k{% endif %} --locale=C
 postgresql_port: 5432
 postgresql_ssl_enabled: true
 postgresql_primary_server: "{{ groups.postgresql.0 }}"

@@ -2,13 +2,17 @@
 - name: Including PostgreSQL Variables
   include_vars:
     file: ../../postgresql/defaults/main.yml
+- name: Aborting if Authentication Method is not Supported
+  fail:
+    msg: Authentication Method is not Supported
+  when: postgresql_auth_method == 'scram-sha-256' and pgpool2_version is version('3.7', '<=')
 - name: Checking if Database Cluster Exists
   stat:
     path: "{{ postgresql_data_directory }}/PG_VERSION"
   delegate_to: "{{ item }}"
   register: _pg_version
   loop: "{{ groups.postgresql }}"
-- name: Aborting if Database Cluster Does Not Exist
+- name: Aborting if Database Cluster does not Exist
   fail:
     msg: Database Cluster Does Not Exist
   when: false in (_pg_version.results | map(attribute='stat.exists'))
@@ -17,14 +21,14 @@
     file: ../../postgresql/tasks/repo.yml
 - name: Installing PostgreSQL Server
   yum:
-    name: postgresql{{ postgresql_version }}-server
+    name: postgresql{{ postgresql_version | replace('.', '') }}-server
 - name: Including Tasks for Installing Pgpool-II Repository
   include_tasks:
     file: repo.yml
 - name: Installing Pgpool-II Server
   yum:
-    name: pgpool-II-pg{{ postgresql_version }}
-    enablerepo: crb
+    name: pgpool-II-pg{{ postgresql_version | replace('.', '') }}
+    enablerepo: "{{ ansible_distribution_major_version is version('9', '>=') | ternary('crb', '') }}"
 - name: Editing pgpool.conf File
   blockinfile:
     path: /etc/pgpool-II/pgpool.conf
@@ -43,35 +47,88 @@
       enable_pool_hba = on
       {% if postgresql_ssl_enabled %}
       ssl = on
-      ssl_key = 'server.key'
-      ssl_cert = 'server.crt'
+      ssl_key = '/etc/pgpool-II/server.key'
+      ssl_cert = '/etc/pgpool-II/server.crt'
+      {% endif %}
+      {% if pgpool2_version is version('4.1', '<=') %}
+      log_destination = 'syslog'
+      {% endif %}
+      logdir = '/tmp'
+      load_balance_mode = on
+      {% if pgpool2_version is version('4.1', '<=') %}
+      master_slave_mode = on
+      master_slave_sub_mode = stream
       {% endif %}
       sr_check_user = '{{ pgpool2_monitor_role }}'
+      sr_check_password = '{{ pgpool2_version is version('4.0', '>=') | ternary('', pgpool2_monitor_password) }}'
       health_check_period = 5
       health_check_timeout = 30
       health_check_user = '{{ pgpool2_monitor_role }}'
+      health_check_password = '{{ pgpool2_version is version('4.0', '>=') | ternary('', pgpool2_monitor_password) }}'
       health_check_max_retries = 3
+      {% if pgpool2_version is version('4.1', '>=') %}
       failover_command = '/etc/pgpool-II/failover.sh %d %h %p %D %m %H %M %P %r %R %N %S'
+      {% if pgpool2_version is version('4.2', '>=') %}
       follow_primary_command = '/etc/pgpool-II/follow_primary.sh %d %h %p %D %m %H %M %P %r %R'
+      {% else %}
+      follow_master_command = '/etc/pgpool-II/follow_master.sh %d %h %p %D %m %H %M %P %r %R'
+      {% endif %}
+      {% else %}
+      failover_command = 'su - {{ postgresql_user }} -c "/etc/pgpool-II/failover.sh %d %h %p %D %m %H %M %P %r %R %N %S"'
+      follow_master_command = 'su - {{ postgresql_user }} -c "/etc/pgpool-II/follow_master.sh %d %h %p %D %m %H %M %P %r %R"'
+      {% endif %}
       recovery_user = '{{ postgresql_user }}'
+      recovery_password = '{{ pgpool2_version is version('4.0', '>=') | ternary('', postgresql_password) }}'
       recovery_1st_stage_command = 'recovery_1st_stage'
       {% if pgpool2_watchdog_enabled %}
       use_watchdog = on
+      {% if pgpool2_version is version('4.2', '>=') %}
       {% for host in groups.pgpool2 %}
       hostname{{ loop.index0 }} = '{{ host }}'
       wd_port{{ loop.index0 }} = {{ pgpool2_watchdog_port }}
       pgpool_port{{ loop.index0 }} = {{ pgpool2_port }}
       {% endfor %}
+      {% else %}
+      wd_hostname = '{{ ansible_hostname }}'
+      wd_port = {{ pgpool2_watchdog_port }}
+      {% for host in groups.pgpool2 | difference([ansible_hostname]) %}
+      other_pgpool_hostname{{ loop.index0 }} = '{{ host }}'
+      other_pgpool_port{{ loop.index0 }} = {{ pgpool2_port }}
+      other_wd_port{{ loop.index0 }} = {{ pgpool2_watchdog_port }}
+      {% endfor %}
+      {% endif %}
+      {% if pgpool2_version is version('4.4', '>=') %}
       delegate_ip = '{{ pgpool2_virtual_ip }}'
+      {% else %}
+      delegate_IP = '{{ pgpool2_virtual_ip }}'
+      {% endif %}
+      {% if pgpool2_version is version('4.1', '>=') %}
       if_up_cmd = '/usr/bin/sudo /sbin/ip addr add $_IP_$/24 dev {{ public_interface }} label {{ public_interface }}:0'
       if_down_cmd = '/usr/bin/sudo /sbin/ip addr del $_IP_$/24 dev {{ public_interface }}'
       arping_cmd = '/usr/bin/sudo /usr/sbin/arping -U $_IP_$ -w 1 -I {{ public_interface }}'
+      {% else %}
+      if_up_cmd = 'ip addr add $_IP_$/24 dev {{ public_interface }} label {{ public_interface }}:0'
+      if_down_cmd = 'ip addr del $_IP_$/24 dev {{ public_interface }}'
+      arping_cmd = 'arping -U $_IP_$ -w 1 -I {{ public_interface }}'
+      {% endif %}
+      {% if pgpool2_version is version('4.2', '>=') %}
       wd_escalation_command = '/etc/pgpool-II/escalation.sh'
+      {% endif %}
+      {% if pgpool2_version is version('4.1', '>=') %}
       enable_consensus_with_half_votes = {{ ((groups.pgpool2 | length) % 2 == 0) | ternary('on', 'off') }}
+      {% endif %}
+      {% if pgpool2_version is version('4.2', '>=') %}
       {% for host in groups.pgpool2 %}
       heartbeat_hostname{{ loop.index0 }} = '{{ host }}'
       heartbeat_port{{ loop.index0 }} = {{ pgpool2_heartbeat_port }}
       {% endfor %}
+      {% else %}
+      wd_heartbeat_port = {{ pgpool2_heartbeat_port }}
+      {% for host in groups.pgpool2 | difference([ansible_hostname]) %}
+      heartbeat_destination{{ loop.index0 }} = '{{ host }}'
+      heartbeat_destination_port{{ loop.index0 }} = {{ pgpool2_heartbeat_port }}
+      {% endfor %}
+      {% endif %}
       {% endif %}
 - name: Creating Unix Socket Directory
   file:
@@ -84,10 +141,30 @@
   include_tasks:
     file: authkey.yml
   vars:
-    hosts: "{{ groups.postgresql }}"
-- name: Copying Failover Scripts
+    hosts: "{{ groups.all }}"
+- name: Downloading Sample Scripts
+  get_url:
+    url: https://raw.githubusercontent.com/pgpool/pgpool2/V{{ item.0.version | replace('.', '_') }}_STABLE/src/sample/scripts/{{ item.1 }}.sample
+    dest: /etc/pgpool-II/{{ item.1 }}.sample
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: 0700
+  when: pgpool2_version is version(item.0.version, '<')
+  loop: "{{ files | subelements('files') }}"
+  vars:
+    files:
+      - version: 4.1
+        files:
+          - failover.sh
+          - follow_master.sh
+          - recovery_1st_stage
+          - pgpool_remote_start
+      - version: 4.2
+        files:
+          - escalation.sh
+- name: Copying Scripts
   copy:
-    src: /etc/pgpool-II/sample_scripts/{{ item }}.sample
+    src: /etc/pgpool-II/{{ pgpool2_version is version('4.4', '>=') | ternary('sample_scripts/', '') }}{{ item }}.sample
     dest: /etc/pgpool-II/{{ item }}
     owner: "{{ postgresql_user }}"
     group: "{{ postgresql_group }}"
@@ -96,41 +173,71 @@
     force: false
   loop:
     - failover.sh
-    - follow_primary.sh
-- name: Setting Variables in Failover Scripts
-  lineinfile:
+    - follow_{{ pgpool2_version is version('4.2', '>=') | ternary('primary', 'master') }}.sh
+    - recovery_1st_stage
+    - pgpool_remote_start
+    - escalation.sh
+- name: Editing Scripts
+  replace:
     path: /etc/pgpool-II/{{ item.0 }}
-    regexp: ^({{ item.1.name }}=).*
-    line: \g<1>{{ item.1.value }}
-    backrefs: true
-  loop: "{{ files | product(shvars) }}"
+    regexp: "{{ item.1.regexp }}"
+    replace: "{{ item.1.replace }}"
+  register: _replace
+  loop: "{{ files | product(replace) }}"
   vars:
     files:
       - failover.sh
-      - follow_primary.sh
-    shvars:
-      - name: PGHOME
-        value: "/usr/pgsql-{{ postgresql_version }}"
-      - name: REPLUSER
-        value: "{{ postgresql_replication_role }}"
-      - name: PCP_USER
-        value: "{{ pgpool2_pcp_user }}"
-      - name: PCP_PORT
-        value: "{{ pgpool2_pcp_port }}"
-      - name: POSTGRESQL_STARTUP_USER
-        value: "{{ postgresql_user }}"
-      - name: SSH_KEY_FILE
-        value: "{{ pgpool2_ssh_key_filename }}"
+      - follow_{{ pgpool2_version is version('4.2', '>=') | ternary('primary', 'master') }}.sh
+      - recovery_1st_stage
+      - pgpool_remote_start
+      - escalation.sh
+    replace:
+      - regexp: ^(PGHOME=).*
+        replace: \1/usr/pgsql-{{ postgresql_version }}
+      - regexp: ^(REPLUSER=).*
+        replace: \g<1>{{ postgresql_replication_role }}
+      - regexp: ^(PCP_USER=).*
+        replace: \g<1>{{ pgpool2_pcp_user }}
+      - regexp: ^(PCP_PORT=).*
+        replace: \g<1>{{ pgpool2_pcp_port }}
+      - regexp: ^(POSTGRESQL_STARTUP_USER=).*
+        replace: \g<1>{{ postgresql_user }}
+      - regexp: ^(SSH_KEY_FILE=).*
+        replace: \g<1>{{ pgpool2_ssh_key_filename }}
+      - regexp: ^(PGPOOLS=).*
+        replace: \g<1>({{ groups.pgpool2 | product(['.' + ansible_fqdn.split('.', 1)[1]]) | map('join') | join(' ') }})
+      - regexp: ^(VIP=).*
+        replace: \g<1>{{ pgpool2_virtual_ip }}
+      - regexp: ^(DEVICE=).*
+        replace: \g<1>{{ public_interface }}
+      - regexp: ^(OLD_PRIMARY_NODE_HOST=)(.*)
+        replace: \g<1>{{ pgpool2_version is version('4.0', '<=') | ternary('unknown', '\2') }}
+      - regexp: ^(OLD_PRIMARY_NODE_PORT=)(.*)
+        replace: \g<1>{{ pgpool2_version is version('4.0', '<=') | ternary(postgresql_port, '\2') }}
+      - regexp: ^(DEST_NODE_PORT=)(.*)
+        replace: \g<1>{{ pgpool2_version is version('4.0', '<=') | ternary(postgresql_port, '\2') }}
+      - regexp: ^(DEST_NODE_ID=)(.*)
+        replace: \g<1>{{ pgpool2_version is version('3.7', '<=') | ternary('unknown', '\2') }}
+      - regexp: (pcp_attach_node )(.*)
+        replace: \g<1>{{ pgpool2_version is version('3.4', '<=') | ternary('10 localhost $PCP_PORT $PCP_USER %s $NODE_ID' | format(pgpool2_pcp_password), '\2') }}
+      - regexp: ^(PRIMARY_NODE_PORT=)(.*)
+        replace: \g<1>{{ pgpool2_version is version('3.3', '<=') | ternary(postgresql_port, '\2') }}
+      - regexp: ( passfile=''[^']*'')
+        replace: "{{ postgresql_version is version('9.6', '<=') | ternary('', '\\1') }}"
+      - regexp: ^(primary_slot_name = .*)
+        replace: "{{ postgresql_version is version('9.3', '<=') | ternary('#\\1', '\\1') }}"
+      - regexp: (pg_isready)
+        replace: "{{ postgresql_version is version('9.2', '<=') | ternary('psql -l', '\\1') }}"
 - name: Setting Authentication Method in pool_hba.conf File
   replace:
     path: /etc/pgpool-II/pool_hba.conf
     regexp: ^((local|host)\s+all\s+all\s+((127\.0\.0\.1/32|::1/128)\s+)?)trust
-    replace: "\\1{{ postgresql_auth_method}}"
+    replace: \g<1>{{ postgresql_auth_method }}
 - name: Editing pool_hba.conf File
   blockinfile:
     path: /etc/pgpool-II/pool_hba.conf
     block: |
-      {{ postgresql_ssl_enabled | ternary('hostssl', 'host') }} all all samenet {{ postgresql_auth_method }}
+      {{ postgresql_ssl_enabled | ternary('hostssl', 'host') }} all all {{ ansible_facts[public_interface].ipv4.network }}/{{ ansible_facts[public_interface].ipv4.prefix }} {{ postgresql_auth_method }}
 - name: Including Tasks for Generating SSL Certificate
   include_tasks:
     file: ../../postgresql/tasks/sslcert.yml
@@ -146,22 +253,39 @@
         group: "{{ postgresql_group }}"
         mode: 0600
         create: true
-    - name: Encrypting Password
+      when: pgpool2_version is version('4.0', '>=')
+    - name: Checking if Password Entry is in pool_passwd File
       command:
-        cmd: pg_enc -k {{ postgresql_home_directory }}/.pgpoolkey {{ item }}
-      register: _pg_enc
-      loop:
-        - "{{ postgresql_password }}"
-        - "{{ pgpool2_monitor_password }}"
+        cmd: "grep -E ^{{ item.user }}: /etc/pgpool-II/pool_passwd"
+      register: _grep
       changed_when: false
-    - name: Adding Encrypted Password to pool_passwd File
-      blockinfile:
-        path: /etc/pgpool-II/pool_passwd
-        block: |
-          {{ postgresql_user }}:{{ _pg_enc.results.0.stdout_lines[-1].split(' ')[-1] }}
-          {% if pgpool2_monitor_role != postgresql_user %}
-          {{ pgpool2_monitor_role }}:{{ _pg_enc.results.1.stdout_lines[-1].split(' ')[-1] }}
+      failed_when: false
+      loop:
+        - user: "{{ postgresql_user }}"
+          password: "{{ postgresql_password }}"
+        - user: "{{ pgpool2_monitor_role }}"
+          password: "{{ pgpool2_monitor_password }}"
+    - name: Adding Password Entry to pool_passwd File via Command
+      command:
+        cmd: >
+          {% if pgpool2_version is version('4.0', '>=') %}
+          pg_enc -k {{ postgresql_home_directory }}/.pgpoolkey
+          {% else %}
+          pg_md5
           {% endif %}
+          -m -u {{ item.item.user }} {{ item.item.password }}
+      when: item.rc != 0 and pgpool2_version is version('3.4', '!=')
+      loop: "{{ _grep.results }}"
+    - name: Adding Password Entry to pool_passwd File Directly
+      lineinfile:
+        path: /etc/pgpool-II/pool_passwd
+        line: "{{ item.item.user }}:md5{{ (item.item.password + item.item.user) | md5 }}"
+        owner: "{{ postgresql_user }}"
+        group: "{{ postgresql_group }}"
+        mode: 0600
+        create: true
+      when: item.rc != 0 and pgpool2_version is version('3.4', '==')
+      loop: "{{ _grep.results }}"
     - name: Generating .pgpass File
       blockinfile:
         path: "{{ postgresql_home_directory }}/.pgpass"
@@ -185,7 +309,7 @@
 - block:
     - name: Creating Monitor Role
       command:
-        cmd: /usr/pgsql-{{ postgresql_version }}/bin/psql -c "CREATE ROLE {{ pgpool2_monitor_role }} LOGIN PASSWORD '{{ pgpool2_monitor_password }}' IN ROLE pg_monitor" -h {{ postgresql_primary_server }} -p {{ postgresql_port }}
+        cmd: /usr/pgsql-{{ postgresql_version }}/bin/psql -c "CREATE ROLE {{ pgpool2_monitor_role }} LOGIN PASSWORD '{{ pgpool2_monitor_password }}' {% if postgresql_version is version('10', '>=') %}IN ROLE pg_monitor{% endif %}" -h {{ postgresql_primary_server }} -p {{ postgresql_port }}
       become_user: "{{ postgresql_user }}"
       register: _psql
       changed_when: _psql.rc == 0
@@ -198,8 +322,8 @@
       loop: "{{ groups.postgresql }}"
     - name: Installing Pgpool-II Extensions
       yum:
-        name: pgpool-II-pg{{ postgresql_version }}-extensions
-        enablerepo: crb
+        name: pgpool-II-pg{{ postgresql_version | replace('.', '') }}-extensions
+        enablerepo: "{{ ansible_distribution_major_version is version('9', '>=') | ternary('crb', '') }}"
         disablerepo: pgdg*
       delegate_to: "{{ item }}"
       loop: "{{ groups.postgresql }}"
@@ -229,31 +353,10 @@
           - pgpool_remote_start
     - name: Copying Recovery Scripts
       command:
-        cmd: scp -i {{ postgresql_home_directory}}/.ssh/{{ pgpool2_ssh_key_filename }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /etc/pgpool-II/sample_scripts/{{ item.item.0 }}.sample {{ item.item.1 }}:{{ postgresql_data_directory }}/{{ item.item.0 }}
+        cmd: scp -i {{ postgresql_home_directory}}/.ssh/{{ pgpool2_ssh_key_filename }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /etc/pgpool-II/{{ item.item.0 }} {{ item.item.1 }}:{{ postgresql_data_directory }}/{{ item.item.0 }}
       become_user: "{{ postgresql_user }}"
-      when: not item.stat.exists
+      when: not item.stat.exists or item.item.0 in (_replace.results | selectattr('changed', '==', true) | map(attribute='item.0'))
       loop: "{{ _stat.results }}"
-    - name: Setting Variables in Recovery Scripts
-      lineinfile:
-        path: "{{ postgresql_data_directory }}/{{ item.0 }}"
-        regexp: ^({{ item.1.name }}=).*
-        line: \g<1>{{ item.1.value }}
-        backrefs: true
-      delegate_to: "{{ item.2 }}"
-      loop: "{{ files | product(shvars) | product(groups.postgresql) | map('flatten', levels=1) }}"
-      vars:
-        files:
-          - recovery_1st_stage
-          - pgpool_remote_start
-        shvars:
-          - name: PGHOME
-            value: "/usr/pgsql-{{ postgresql_version }}"
-          - name: REPLUSER
-            value: "{{ postgresql_replication_role }}"
-          - name: POSTGRESQL_STARTUP_USER
-            value: "{{ postgresql_user }}"
-          - name: SSH_KEY_FILE
-            value: "{{ pgpool2_ssh_key_filename }}"
   run_once: true
 - block:
     - name: Adding Virtual IP Entry to /etc/hosts File
@@ -263,36 +366,12 @@
       delegate_to: "{{ item }}"
       loop: "{{ groups.all }}"
       run_once: true
-    - name: Setting Node ID in pgpool_node_id File
-      lineinfile:
-        path: /etc/pgpool-II/pgpool_node_id
-        line: "{{ groups.pgpool2.index(ansible_hostname) }}"
-    - name: Copying Wtachdog Scripts
-      copy:
-        src: /etc/pgpool-II/sample_scripts/escalation.sh.sample
-        dest: /etc/pgpool-II/escalation.sh
-        owner: "{{ postgresql_user }}"
-        group: "{{ postgresql_group }}"
-        mode: 0700
-        remote_src: true
-        force: false
-    - name: Setting Variables in Watchdog Scripts
-      lineinfile:
-        path: /etc/pgpool-II/escalation.sh
-        regexp: ^({{ item.name }}=).*
-        line: \g<1>{{ item.value }}
-        backrefs: true
-      loop:
-        - name: POSTGRESQL_STARTUP_USER
-          value: "{{ postgresql_user }}"
-        - name: SSH_KEY_FILE
-          value: "{{ pgpool2_ssh_key_filename }}"
-        - name: PGPOOLS
-          value: "({{ groups.pgpool2 | join(' ') }})"
-        - name: VIP
-          value: "{{ pgpool2_virtual_ip }}"
-        - name: DEVICE
-          value: "{{ public_interface }}"
+    - block:
+        - name: Setting Node ID in pgpool_node_id File
+          lineinfile:
+            path: /etc/pgpool-II/pgpool_node_id
+            line: "{{ groups.pgpool2.index(ansible_hostname) }}"
+      when: pgpool2_version is version('4.2', '>=')
   when: pgpool2_watchdog_enabled
 - name: Generating PCP Password
   command:
@@ -314,6 +393,13 @@
   delegate_to: "{{ item }}"
   loop: "{{ groups.all }}"
   run_once: true
+- name: Setting .pgpoolkey File Path in Start Options
+  lineinfile:
+    path: /etc/sysconfig/pgpool
+    regexp: ^(OPTS=).*
+    line: \1" -n -k {{ postgresql_home_directory }}/.pgpoolkey"
+    backrefs: true
+  when: pgpool2_version is version('4.0', '>=')
 - name: Starting Pgpool-II Server
   service:
     name: pgpool

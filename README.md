@@ -10,8 +10,13 @@ The playbook is tested with the following software versions:
 
 * VirtualBox 7.0.x
 * Vagrant 2.4.x
-* Vagrant box [rockylinux/9](https://app.vagrantup.com/rockylinux/boxes/9)
+* Vagrant box
+  * [centos/7](https://app.vagrantup.com/centos/boxes/7)
+  * [rockylinux/8](https://app.vagrantup.com/rockylinux/boxes/8)
+  * [rockylinux/9](https://app.vagrantup.com/rockylinux/boxes/9)
 * Ansible 2.15.x
+* PostgreSQL 9.2.x - 16.x
+* Pgpool-II 3.3.x - 4.5.x
 
 Usage
 -----

@@ -16,6 +16,9 @@ Vagrant.configure("2") do |config|
           ansible.limit = "all"
           ansible.playbook = "playbook.yml"
           ansible.groups = groups
+          ansible.extra_vars = {
+            postgresql_version: "16", pgpool2_version: "4.5",
+          }
         end
       end
     end

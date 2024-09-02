@@ -4,10 +4,32 @@
     cmd: localectl list-locales
   register: _localectl
   changed_when: false
-- name: Installing Locale Data
-  yum:
-    name: glibc-langpack-{{ system_locale.split('_')[0] }}
-  when: system_locale not in _localectl.stdout_lines
+- name: Enabling CentOS Vault Repository
+  replace:
+    path: /etc/yum.repos.d/CentOS-Base.repo
+    regexp: "{{ item.regexp }}"
+    replace: "{{ item.replace }}"
+  loop:
+    - regexp: ^(mirrorlist=.+)
+      replace: '#\1'
+    - regexp: ^#(baseurl=http://)mirror(\..+)
+      replace: \1vault\2
+  when: ansible_distribution_major_version is version('7', '<=')
+- block:
+    - name: Installing Locale Data
+      yum:
+        name: glibc-langpack-{{ system_locale.split('_')[0] }}
+      when: ansible_distribution_major_version is version('8', '>=')
+    - block:
+        - name: Updating Locale Data
+          yum:
+            name: glibc-common
+            state: latest
+        - name: Reinstalling Locale Data
+          command:
+            cmd: yum -y reinstall glibc-common
+      when: ansible_distribution_major_version is version('7', '<=')
+  when: system_locale.split('.')[0] not in _localectl.stdout_lines
 - name: Checking if System Locale is Set
   command:
     cmd: localectl status

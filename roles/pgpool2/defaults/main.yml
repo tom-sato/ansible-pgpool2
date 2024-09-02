@@ -2,7 +2,7 @@
 pgpool2_version: 4.5
 pgpool2_port: 9999
 pgpool2_pcp_port: 9898
-pgpool2_watchdog_enabled: true
+pgpool2_watchdog_enabled: "{{ (groups.pgpool2 | length) >= 2 }}"
 pgpool2_watchdog_port: 9000
 pgpool2_heartbeat_port: 9694
 pgpool2_virtual_ip: 192.168.56.201

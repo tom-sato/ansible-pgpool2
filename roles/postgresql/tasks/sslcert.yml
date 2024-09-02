@@ -1,7 +1,7 @@
 ---
 - name: Installing Python Cryptography Library
   yum:
-    name: python3-cryptography
+    name: python{{ ansible_distribution_major_version is version('8', '>=') | ternary(3, 2) }}-cryptography
 - name: Generating SSL Private and Public Keys
   openssl_privatekey:
     path: "{{ directory }}/server.key"

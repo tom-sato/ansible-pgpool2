@@ -4,7 +4,7 @@
     file: repo.yml
 - name: Installing PostgreSQL Server
   yum:
-    name: postgresql{{ postgresql_version }}-server
+    name: postgresql{{ postgresql_version | replace('.', '') }}-server
 - name: Creating Data Directory
   file:
     path: "{{ postgresql_data_directory }}"
@@ -12,6 +12,14 @@
     owner: "{{ postgresql_user }}"
     group: "{{ postgresql_group }}"
     mode: 0700
+- name: Creating Log Directory
+  file:
+    path: "{{ postgresql_log_directory }}"
+    state: directory
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: 0700
+  when: postgresql_log_directory.0 == '/' and postgresql_log_directory is not search('^' + postgresql_data_directory)
 - block:
     - name: Checking if Database Cluster Exists
       stat:
@@ -56,6 +64,14 @@
           {% if postgresql_ssl_enabled %}
           ssl = on
           {% endif %}
+          wal_level = {{ postgresql_version is version('9.6', '>=') | ternary('replica', 'hot_standby') }}
+          max_wal_senders = {{ [groups.postgresql | length, 10] | max }}
+          {% if postgresql_version is version('9.4', '>=') %}
+          max_replication_slots = {{ [groups.postgresql | length, 10] | max }}
+          {% endif %}
+          hot_standby = on
+          log_directory = '{{ postgresql_log_directory }}'
+          log_line_prefix = '%m [%p] '
     - name: Editing pg_hba.conf File
       blockinfile:
         path: "{{ postgresql_data_directory }}/pg_hba.conf"
@@ -88,19 +104,21 @@
     create: true
   when: postgresql_password != ''
 - block:
-    - name: Generating Replication Slot Name
-      set_fact:
-        _slotname: "{{ ansible_hostname | lower | regex_replace('[-.]', '_') }}"
-    - name: Checking if Replication Slot Exists
-      stat:
-        path: "{{ postgresql_data_directory }}/pg_replslot/{{ _slotname }}"
-      delegate_to: "{{ postgresql_primary_server }}"
-      register: _pg_replslot
-    - name: Creating Replication Slot
-      command:
-        cmd: /usr/pgsql-{{ postgresql_version }}/bin/psql -c "SELECT pg_create_physical_replication_slot('{{ _slotname }}')" -h {{ postgresql_primary_server }} -p {{ postgresql_port }}
-      become_user: "{{ postgresql_user }}"
-      when: not _pg_replslot.stat.exists
+    - block:
+        - name: Generating Replication Slot Name
+          set_fact:
+            _slotname: "{{ ansible_hostname | lower | regex_replace('[-.]', '_') }}"
+        - name: Checking if Replication Slot Exists
+          stat:
+            path: "{{ postgresql_data_directory }}/pg_replslot/{{ _slotname }}"
+          delegate_to: "{{ postgresql_primary_server }}"
+          register: _pg_replslot
+        - name: Creating Replication Slot
+          command:
+            cmd: /usr/pgsql-{{ postgresql_version }}/bin/psql -c "SELECT pg_create_physical_replication_slot('{{ _slotname }}')" -h {{ postgresql_primary_server }} -p {{ postgresql_port }}
+          become_user: "{{ postgresql_user }}"
+          when: not _pg_replslot.stat.exists
+      when: postgresql_version is version('9.4', '>=')
     - name: Creating Replication Role
       command:
         cmd: /usr/pgsql-{{ postgresql_version }}/bin/psql -c "CREATE ROLE {{ postgresql_replication_role }} LOGIN REPLICATION PASSWORD '{{ postgresql_replication_password }}'" -h {{ postgresql_primary_server }} -p {{ postgresql_port }}
@@ -110,26 +128,41 @@
       failed_when: _psql.rc != 0 and _psql.stderr is not search('already exists')
     - name: Taking Base Backup
       command:
-        cmd: /usr/pgsql-{{ postgresql_version }}/bin/pg_basebackup -D {{ postgresql_data_directory }} -S {{ _slotname }} -h {{ postgresql_primary_server }} -p {{ postgresql_port }} -U {{ postgresql_replication_role }}
+        cmd: >
+          /usr/pgsql-{{ postgresql_version }}/bin/pg_basebackup -D {{ postgresql_data_directory }}
+          {% if postgresql_version is version('9.6', '>=') %}
+          -S {{ _slotname }}
+          {% endif %}
+          -X stream -h {{ postgresql_primary_server }} -p {{ postgresql_port }} -U {{ postgresql_replication_role }}
         creates: "{{ postgresql_data_directory }}/PG_VERSION"
       become_user: "{{ postgresql_user }}"
     - name: Generating Standby Config File
       blockinfile:
-        path: "{{ postgresql_data_directory }}/myrecovery.conf"
+        path: "{{ postgresql_data_directory }}/{{ postgresql_version is version('12', '>=') | ternary('myrecovery.conf', 'recovery.conf') }}"
         block: |
+          {% if postgresql_version is version('11', '<=') %}
+          standby_mode = on
+          {% endif %}
           primary_conninfo = 'host={{ postgresql_primary_server }} port={{ postgresql_port }} user={{ postgresql_replication_role }} application_name={{ ansible_hostname }}'
+          {% if postgresql_version is version('9.4', '>=') %}
           primary_slot_name = '{{ _slotname }}'
+          {% endif %}
+        owner: "{{ postgresql_user }}"
+        group: "{{ postgresql_group }}"
+        mode: 0600
         create: true
-    - name: Editing postgresql.conf File to Include Standby Config
-      lineinfile:
-        path: "{{ postgresql_data_directory }}/postgresql.conf"
-        line: include_if_exists 'myrecovery.conf'
-    - name: Generating standby.signal File
-      file:
-        path: "{{ postgresql_data_directory }}/standby.signal"
-        state: touch
-        modification_time: preserve
-        access_time: preserve
+    - block:
+        - name: Editing postgresql.conf File to Include Standby Config
+          lineinfile:
+            path: "{{ postgresql_data_directory }}/postgresql.conf"
+            line: include_if_exists '{{ postgresql_data_directory }}/myrecovery.conf'
+        - name: Generating standby.signal File
+          file:
+            path: "{{ postgresql_data_directory }}/standby.signal"
+            state: touch
+            modification_time: preserve
+            access_time: preserve
+      when: postgresql_version is version('12', '>=')
     - name: Starting Standby Server
       command:
         cmd: /usr/pgsql-{{ postgresql_version }}/bin/pg_ctl start -D {{ postgresql_data_directory }}

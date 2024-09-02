@@ -1,7 +1,46 @@
 ---
 - name: Importing PostgreSQL RPM Key
   rpm_key:
-    key: https://download.postgresql.org/pub/repos/yum/keys/PGDG-RPM-GPG-KEY-RHEL
+    key: https://download.postgresql.org/pub/repos/yum/keys/{{ postgresql_version is version('11', '>=') | ternary('PGDG-RPM-GPG-KEY-RHEL', 'RPM-GPG-KEY-PGDG') }}
+- name: Checking if PostgreSQL Repository is Archived
+  uri:
+    url: https://download.postgresql.org/pub/repos/yum/{{ postgresql_version }}/redhat/rhel-{{ ansible_distribution_major_version }}-{{ ansible_architecture }}/
+    return_content: true
+  register: _uri
+  failed_when: false
 - name: Installing PostgreSQL Repository
   yum:
     name: https://download.postgresql.org/pub/repos/yum/reporpms/EL-{{ ansible_distribution_major_version }}-{{ ansible_architecture }}/pgdg-redhat-repo-latest.noarch.rpm
+  when: _uri.status == 200
+- name: Generating PostgreSQL Version as Integer
+  set_fact:
+    _vernum: "{{ postgresql_version | replace('.', '') }}"
+- name: Generating Archived PostgreSQL Repository
+  blockinfile:
+    path: /etc/yum.repos.d/pgdg-redhat-{{ _vernum }}.repo
+    block: |
+      [pgdg{{ _vernum }}]
+      name=PostgreSQL {{ postgresql_version }} for RHEL / CentOS $releasever - $basearch
+      baseurl=https://yum-archive.postgresql.org/{{ postgresql_version }}/redhat/rhel-$releasever-$basearch
+      enabled=1
+      gpgcheck=1
+      gpgkey=file:///etc/pki/rpm-gpg/{{ postgresql_version is version('11', '>=') | ternary('PGDG-RPM-GPG-KEY-RHEL', 'RPM-GPG-KEY-PGDG') }}
+      repo_gpgcheck=0
+    create: true
+  when: _uri.status != 200
+- block:
+    - name: Checking if PostgreSQL Module is Disabled
+      command:
+        cmd: dnf -y module list --disabled postgresql
+      register: _dnf
+      changed_when: false
+      failed_when: false
+    - name: Disabling PostgreSQL Module
+      command:
+        cmd: dnf -y module disable postgresql
+      when: _dnf.rc != 0
+  when: ansible_distribution_major_version is version('8', '>=')
+- name: Installing EPEL Repository for Zstandard Compression Library
+  yum:
+    name: epel-release
+  when: ansible_distribution_major_version is version('7', '<=') and postgresql_version is version('15', '>=')
