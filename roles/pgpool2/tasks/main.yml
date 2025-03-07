@@ -245,6 +245,21 @@
     directory: /etc/pgpool-II
   when: postgresql_ssl_enabled
 - block:
+    - name: Adding Virtual IP Entry to /etc/hosts File
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ pgpool2_virtual_ip }} {{ pgpool2_virtual_hostname }} {{ pgpool2_virtual_hostname }}.{{ ansible_fqdn.split('.')[1:] | join('.') }}"
+      delegate_to: "{{ item }}"
+      loop: "{{ groups.all }}"
+      run_once: true
+    - block:
+        - name: Setting Node ID in pgpool_node_id File
+          lineinfile:
+            path: /etc/pgpool-II/pgpool_node_id
+            line: "{{ groups.pgpool2.index(ansible_hostname) }}"
+      when: pgpool2_version is version('4.2', '>=')
+  when: pgpool2_watchdog_enabled
+- block:
     - name: Generating .pgpoolkey File
       lineinfile:
         path: "{{ postgresql_home_directory }}/.pgpoolkey"
@@ -358,21 +373,6 @@
       when: not item.stat.exists or item.item.0 in (_replace.results | selectattr('changed', '==', true) | map(attribute='item.0'))
       loop: "{{ _stat.results }}"
   run_once: true
-- block:
-    - name: Adding Virtual IP Entry to /etc/hosts File
-      lineinfile:
-        path: /etc/hosts
-        line: "{{ pgpool2_virtual_ip }} {{ pgpool2_virtual_hostname }} {{ pgpool2_virtual_hostname }}.{{ ansible_fqdn.split('.')[1:] | join('.') }}"
-      delegate_to: "{{ item }}"
-      loop: "{{ groups.all }}"
-      run_once: true
-    - block:
-        - name: Setting Node ID in pgpool_node_id File
-          lineinfile:
-            path: /etc/pgpool-II/pgpool_node_id
-            line: "{{ groups.pgpool2.index(ansible_hostname) }}"
-      when: pgpool2_version is version('4.2', '>=')
-  when: pgpool2_watchdog_enabled
 - name: Generating PCP Password
   command:
     cmd: pg_md5 {{ pgpool2_pcp_password }}
