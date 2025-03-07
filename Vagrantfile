@@ -2,7 +2,7 @@
 Vagrant.configure("2") do |config|
   groups = {
     "postgresql" => ["node-1", "node-2", "node-3"],
-    "pgpool2" => ["node-4", "node-5", "node-6"]
+    "pgpool2" => ["node-1", "node-2", "node-3"]
   }
   nodes = groups.values.flatten.uniq
   nodes.each_with_index do |hostname, index|
@@ -16,9 +16,6 @@ Vagrant.configure("2") do |config|
           ansible.limit = "all"
           ansible.playbook = "playbook.yml"
           ansible.groups = groups
-          ansible.extra_vars = {
-            postgresql_version: "16", pgpool2_version: "4.5",
-          }
         end
       end
     end

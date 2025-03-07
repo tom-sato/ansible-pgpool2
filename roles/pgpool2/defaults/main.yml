@@ -1,5 +1,5 @@
 ---
-pgpool2_version: 4.5
+pgpool2_version: 4.6
 pgpool2_port: 9999
 pgpool2_pcp_port: 9898
 pgpool2_watchdog_enabled: "{{ (groups.pgpool2 | length) >= 2 }}"

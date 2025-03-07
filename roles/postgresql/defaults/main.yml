@@ -1,5 +1,5 @@
 ---
-postgresql_version: 16
+postgresql_version: 17
 postgresql_data_directory: /var/lib/pgsql/{{ postgresql_version }}/data
 postgresql_log_directory: /var/log/pgsql
 postgresql_user: postgres
