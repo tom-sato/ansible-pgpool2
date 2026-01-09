@@ -19,9 +19,9 @@
 - name: Including Tasks for Installing PostgreSQL Repository
   include_tasks:
     file: ../../postgresql/tasks/repo.yml
-- name: Installing PostgreSQL Server
+- name: Installing PostgreSQL Client
   yum:
-    name: postgresql{{ postgresql_version | replace('.', '') }}-server
+    name: postgresql{{ postgresql_version | replace('.', '') }}
 - name: Including Tasks for Installing Pgpool-II Repository
   include_tasks:
     file: repo.yml
