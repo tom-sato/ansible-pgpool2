@@ -244,7 +244,7 @@
   blockinfile:
     path: /etc/pgpool-II/pool_hba.conf
     block: |
-      {{ postgresql_ssl_enabled | ternary('hostssl', 'host') }} all all {{ '%s/%s' | format(ansible_facts[public_interface].ipv4.network, ansible_facts[public_interface].ipv4.netmask) | ipaddr('network/prefix') }} {{ postgresql_auth_method }}
+      {{ postgresql_ssl_enabled | ternary('hostssl', 'host') }} all all {{ '%s/%s' | format(ansible_facts[public_interface].ipv4.network, ansible_facts[public_interface].ipv4.netmask) | ansible.utils.ipaddr('network/prefix') }} {{ postgresql_auth_method }}
 - name: Including Tasks for Generating SSL Certificate
   include_tasks:
     file: ../../postgresql/tasks/sslcert.yml
