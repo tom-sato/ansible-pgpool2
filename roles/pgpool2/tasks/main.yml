@@ -53,7 +53,7 @@
       {% if pgpool2_version is version('4.1', '<=') %}
       log_destination = 'syslog'
       {% endif %}
-      logdir = '/tmp'
+      logdir = '/var/lib/pgpool'
       load_balance_mode = on
       {% if pgpool2_version is version('4.1', '<=') %}
       master_slave_mode = on
@@ -133,6 +133,13 @@
 - name: Creating Unix Socket Directory
   file:
     path: /var/run/postgresql
+    state: directory
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: 0755
+- name: Creating Work Directory
+  file:
+    path: /var/lib/pgpool
     state: directory
     owner: "{{ postgresql_user }}"
     group: "{{ postgresql_group }}"
