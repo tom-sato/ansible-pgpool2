@@ -14,9 +14,9 @@ The playbook is tested with the following software versions:
   * [centos/7](https://app.vagrantup.com/centos/boxes/7)
   * [rockylinux/8](https://app.vagrantup.com/rockylinux/boxes/8)
   * [rockylinux/9](https://app.vagrantup.com/rockylinux/boxes/9)
-* Ansible 2.10.x
-* PostgreSQL 9.2.x - 17.x
-* Pgpool-II 3.3.x - 4.6.x
+* Ansible 2.16.x
+* PostgreSQL 9.2.x - 18.x
+* Pgpool-II 3.3.x - 4.7.x
 
 Usage
 -----

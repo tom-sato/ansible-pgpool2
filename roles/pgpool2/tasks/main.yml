@@ -53,7 +53,11 @@
       {% if pgpool2_version is version('4.1', '<=') %}
       log_destination = 'syslog'
       {% endif %}
+      {% if pgpool2_version is version('4.7', '>=') %}
+      work_dir = '/var/lib/pgpool'
+      {% else %}
       logdir = '/var/lib/pgpool'
+      {% endif %}
       load_balance_mode = on
       {% if pgpool2_version is version('4.1', '<=') %}
       master_slave_mode = on
@@ -351,7 +355,7 @@
       loop: "{{ groups.postgresql }}"
     - name: Creating pgpool_recovery Extension
       command:
-        cmd: /usr/pgsql-{{ postgresql_version }}/bin/psql -c "CREATE EXTENSION IF NOT EXISTS pgpool_recovery" -h {{ postgresql_primary_server }} -p {{ postgresql_port }} template1
+        cmd: /usr/pgsql-{{ postgresql_version }}/bin/psql -c "CREATE EXTENSION IF NOT EXISTS pgpool_recovery" -h {{ postgresql_primary_server }} -p {{ postgresql_port }} {% if pgpool2_version is version('4.7', '>=') %}postgres{% else %}template1{% endif %}
       become_user: "{{ postgresql_user }}"
       register: _psql
       changed_when: _psql.stderr is not search('already exists, skipping')
