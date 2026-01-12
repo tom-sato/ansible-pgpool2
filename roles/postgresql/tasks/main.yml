@@ -69,6 +69,11 @@
           {% if postgresql_version is version('9.4', '>=') %}
           max_replication_slots = {{ [groups.postgresql | length, 10] | max }}
           {% endif %}
+          {% if postgresql_version is version('13', '>=') %}
+          wal_keep_size = 1GB
+          {% else %}
+          wal_keep_segments = 64
+          {% endif %}
           hot_standby = on
           log_directory = '{{ postgresql_log_directory }}'
           log_line_prefix = '%m [%p] '
