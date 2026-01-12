@@ -39,7 +39,7 @@
       command:
         cmd: dnf -y module disable postgresql
       when: _dnf.rc != 0
-  when: ansible_distribution_major_version is version('8', '>=')
+  when: ansible_distribution_major_version is version('8', '==')
 - name: Installing EPEL Repository for Zstandard Compression Library
   yum:
     name: epel-release

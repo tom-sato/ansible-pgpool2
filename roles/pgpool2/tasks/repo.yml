@@ -11,3 +11,7 @@
   yum:
     name: "{{ _uri.url }}/{{ _uri.content | regex_findall('pgpool-II-release-.*?\\.rpm', multiline=true) | sort | last }}"
     disable_gpg_check: "{{ pgpool2_version is version('3.6', '<=') and ansible_distribution_major_version is version('8', '>=') }}"
+- name: Installing EPEL Repository for Memcached Client Library
+  yum:
+    name: epel-release
+  when: ansible_distribution_major_version is version('10', '>=')

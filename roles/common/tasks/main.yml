@@ -48,6 +48,10 @@
   command:
     cmd: timedatectl set-timezone {{ system_timezone }}
   when: "_timedatectl.stdout is not search('Time zone: ' + system_timezone)"
+- name: Installing ACL Utilities for Ansible become_user
+  yum:
+    name: acl
+  when: ansible_distribution_major_version is version('10', '>=')
 - name: Commenting Out 127.0.1.1 Entry from /etc/hosts File
   lineinfile:
     path: /etc/hosts
@@ -66,3 +70,8 @@
       {% for host in groups.all %}
       {{ hostvars[host]['ansible_' + public_interface].ipv4.address }} {{ hostvars[host].ansible_fqdn }} {{ host }}
       {% endfor %}
+- name: Stopping and Disable Firewall Daemon
+  service:
+    name: firewalld
+    state: stopped
+    enabled: false
