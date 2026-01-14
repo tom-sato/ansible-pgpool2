@@ -12,6 +12,7 @@ Vagrant.configure("2") do |config|
       node.vm.hostname = hostname + ".example.com"
       node.vm.network "private_network", ip: "192.168.56.#{101 + index}"
       node.vm.provider "virtualbox" do |vb|
+        vb.customize ["modifyvm", :id, "--firmware", (config.vm.box == "centos/7") ? "bios" : "efi"]
         vb.customize ["modifyvm", :id, "--ioapic", "on"]
       end
       if hostname.equal?(nodes.last)
