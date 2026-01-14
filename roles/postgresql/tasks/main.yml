@@ -165,6 +165,8 @@
           file:
             path: "{{ postgresql_data_directory }}/standby.signal"
             state: touch
+            owner: "{{ postgresql_user }}"
+            group: "{{ postgresql_group }}"
             modification_time: preserve
             access_time: preserve
       when: postgresql_version is version('12', '>=')
